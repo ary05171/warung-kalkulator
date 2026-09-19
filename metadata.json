@@ -1,0 +1,6 @@
+{
+  "name": "Kalkulator Warung & Kasir",
+  "description": "Aplikasi kalkulator jualan warung praktis dan ringan untuk HP & Termux: tabel harga kostum, hitung kembalian, hutang, uang masuk & keluar, suplier, serta database lokal.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
