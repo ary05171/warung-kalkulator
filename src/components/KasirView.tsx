@@ -22,9 +22,9 @@ import {
 interface KasirViewProps {
   products: Product[];
   cart: CartItem[];
-  onAddToCart: (product: Product) => void;
-  onUpdateQuantity: (productId: string, delta: number) => void;
-  onRemoveFromCart: (productId: string) => void;
+  onAddToCart: (product: Product, unitType?: 'pack' | 'retail') => void;
+  onUpdateQuantity: (itemKeyOrId: string, delta: number) => void;
+  onRemoveFromCart: (itemKeyOrId: string) => void;
   onClearCart: () => void;
   onOpenPayment: () => void;
 }
@@ -132,11 +132,31 @@ export function KasirView({
     return cart.reduce((sum, item) => sum + item.subtotal, 0);
   }, [cart]);
 
-  // Map of quantities in cart for quick display
+  // Maps of quantities in cart for quick display
+  const cartPackQtyMap = useMemo(() => {
+    const map = new Map<string, number>();
+    cart.forEach((c) => {
+      if (c.unitType === 'pack' || !c.unitType) {
+        map.set(c.product.id, (map.get(c.product.id) || 0) + c.quantity);
+      }
+    });
+    return map;
+  }, [cart]);
+
+  const cartRetailQtyMap = useMemo(() => {
+    const map = new Map<string, number>();
+    cart.forEach((c) => {
+      if (c.unitType === 'retail') {
+        map.set(c.product.id, (map.get(c.product.id) || 0) + c.quantity);
+      }
+    });
+    return map;
+  }, [cart]);
+
   const cartQtyMap = useMemo(() => {
     const map = new Map<string, number>();
     cart.forEach((c) => {
-      map.set(c.product.id, c.quantity);
+      map.set(c.product.id, (map.get(c.product.id) || 0) + c.quantity);
     });
     return map;
   }, [cart]);
@@ -312,8 +332,10 @@ export function KasirView({
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
             {sortedAndFilteredProducts.map((prod) => {
-              const qtyInCart = cartQtyMap.get(prod.id) || 0;
-              const isSelected = qtyInCart > 0;
+              const packQtyInCart = cartPackQtyMap.get(prod.id) || 0;
+              const retailQtyInCart = cartRetailQtyMap.get(prod.id) || 0;
+              const totalQtyInCart = packQtyInCart + retailQtyInCart;
+              const isSelected = totalQtyInCart > 0;
 
               return (
                 <div
@@ -327,7 +349,7 @@ export function KasirView({
                 >
                   {/* Top info and Image */}
                   <div
-                    onClick={() => onAddToCart(prod)}
+                    onClick={() => onAddToCart(prod, 'pack')}
                     className="p-2.5 cursor-pointer active:scale-98 transition-transform select-none"
                   >
                     <div className="flex items-center justify-between gap-1 mb-1.5">
@@ -353,9 +375,16 @@ export function KasirView({
                       </div>
 
                       {/* Category tag */}
-                      <span className="text-[10px] font-medium text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded truncate max-w-[80px]">
-                        {prod.category}
-                      </span>
+                      <div className="flex flex-col items-end gap-0.5 max-w-[90px]">
+                        <span className="text-[10px] font-medium text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded truncate w-full text-right">
+                          {prod.category}
+                        </span>
+                        {prod.allowRetail && (
+                          <span className="text-[9px] font-bold text-amber-700 bg-amber-100/90 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                            ✂️ Bisa Ecer
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Name */}
@@ -370,43 +399,134 @@ export function KasirView({
                       </span>
                       <span className="text-[10px] text-stone-400">/{prod.unit || 'pcs'}</span>
                     </div>
-                  </div>
 
-                  {/* Ergonomic Stepper (+ / - Button) */}
-                  <div className="px-2.5 pb-2 pt-1 border-t border-stone-100 bg-stone-50/50 flex items-center justify-between">
-                    {qtyInCart === 0 ? (
-                      <button
-                        id={`btn-add-${prod.id}`}
-                        onClick={() => onAddToCart(prod)}
-                        className="w-full py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1 active:scale-95 transition-all shadow-xs"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Tambah</span>
-                      </button>
-                    ) : (
-                      <div className="w-full flex items-center justify-between bg-white border border-emerald-400 rounded-lg overflow-hidden shadow-inner">
-                        <button
-                          onClick={() => onUpdateQuantity(prod.id, -1)}
-                          className="w-8 h-8 flex items-center justify-center bg-emerald-100 hover:bg-emerald-200 text-emerald-800 active:scale-90 transition-all"
-                          title="Kurangi"
-                        >
-                          <Minus className="w-3.5 h-3.5" />
-                        </button>
-
-                        <span className="font-black text-sm text-emerald-950 px-2">
-                          {qtyInCart}
+                    {/* Ecer price sub-label if available */}
+                    {prod.allowRetail && prod.retailPrice && (
+                      <div className="text-[11px] font-bold text-amber-800 bg-amber-50/80 px-1.5 py-0.5 rounded-md mt-1 flex items-center justify-between border border-amber-200/60">
+                        <span>Ecer:</span>
+                        <span>
+                          {formatRupiah(prod.retailPrice)}/{prod.retailUnit || 'Batang'}
                         </span>
-
-                        <button
-                          onClick={() => onUpdateQuantity(prod.id, 1)}
-                          className="w-8 h-8 flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white active:scale-90 transition-all"
-                          title="Tambah"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
                       </div>
                     )}
                   </div>
+
+                  {/* Action Area: Retail / Ecer dual buttons or standard single button */}
+                  {prod.allowRetail ? (
+                    <div className="p-1.5 border-t border-stone-100 bg-stone-50/70 space-y-1.5">
+                      {/* Bungkus / Pack Action */}
+                      <div>
+                        {packQtyInCart === 0 ? (
+                          <button
+                            id={`btn-add-pack-${prod.id}`}
+                            onClick={() => onAddToCart(prod, 'pack')}
+                            className="w-full py-1 px-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center justify-between active:scale-95 transition-all shadow-xs"
+                          >
+                            <span className="flex items-center gap-0.5">
+                              <Plus className="w-3 h-3" />
+                              <span>{prod.unit || 'Bks'}</span>
+                            </span>
+                            <span className="text-[10px] opacity-90">{formatRupiah(prod.price)}</span>
+                          </button>
+                        ) : (
+                          <div className="w-full flex items-center justify-between bg-white border border-emerald-400 rounded-lg overflow-hidden shadow-inner">
+                            <button
+                              onClick={() => onUpdateQuantity(`${prod.id}-pack`, -1)}
+                              className="w-6 h-6 flex items-center justify-center bg-emerald-100 hover:bg-emerald-200 text-emerald-800 active:scale-90 transition-all text-xs"
+                              title="Kurangi Bungkus"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <span className="font-bold text-xs text-emerald-950 px-1">
+                              {packQtyInCart} {prod.unit || 'Bks'}
+                            </span>
+                            <button
+                              onClick={() => onUpdateQuantity(`${prod.id}-pack`, 1)}
+                              className="w-6 h-6 flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white active:scale-90 transition-all text-xs"
+                              title="Tambah Bungkus"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Ecer / Batang Action */}
+                      <div>
+                        {retailQtyInCart === 0 ? (
+                          <button
+                            id={`btn-add-retail-${prod.id}`}
+                            onClick={() => onAddToCart(prod, 'retail')}
+                            className="w-full py-1 px-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] flex items-center justify-between active:scale-95 transition-all shadow-xs"
+                          >
+                            <span className="flex items-center gap-0.5">
+                              <Plus className="w-3 h-3" />
+                              <span>{prod.retailUnit || 'Batang'}</span>
+                            </span>
+                            <span className="text-[10px] opacity-90">
+                              {formatRupiah(prod.retailPrice || 0)}
+                            </span>
+                          </button>
+                        ) : (
+                          <div className="w-full flex items-center justify-between bg-white border border-amber-500 rounded-lg overflow-hidden shadow-inner">
+                            <button
+                              onClick={() => onUpdateQuantity(`${prod.id}-retail`, -1)}
+                              className="w-6 h-6 flex items-center justify-center bg-amber-100 hover:bg-amber-200 text-amber-900 active:scale-90 transition-all text-xs"
+                              title="Kurangi Eceran"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <span className="font-bold text-xs text-amber-950 px-1">
+                              {retailQtyInCart} {prod.retailUnit || 'Batang'}
+                            </span>
+                            <button
+                              onClick={() => onUpdateQuantity(`${prod.id}-retail`, 1)}
+                              className="w-6 h-6 flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white active:scale-90 transition-all text-xs"
+                              title="Tambah Eceran"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    /* Standard Non-Ecer Stepper */
+                    <div className="px-2.5 pb-2 pt-1 border-t border-stone-100 bg-stone-50/50 flex items-center justify-between">
+                      {packQtyInCart === 0 ? (
+                        <button
+                          id={`btn-add-${prod.id}`}
+                          onClick={() => onAddToCart(prod, 'pack')}
+                          className="w-full py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1 active:scale-95 transition-all shadow-xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Tambah</span>
+                        </button>
+                      ) : (
+                        <div className="w-full flex items-center justify-between bg-white border border-emerald-400 rounded-lg overflow-hidden shadow-inner">
+                          <button
+                            onClick={() => onUpdateQuantity(`${prod.id}-pack`, -1)}
+                            className="w-8 h-8 flex items-center justify-center bg-emerald-100 hover:bg-emerald-200 text-emerald-800 active:scale-90 transition-all"
+                            title="Kurangi"
+                          >
+                            <Minus className="w-3.5 h-3.5" />
+                          </button>
+
+                          <span className="font-black text-sm text-emerald-950 px-2">
+                            {packQtyInCart}
+                          </span>
+
+                          <button
+                            onClick={() => onUpdateQuantity(`${prod.id}-pack`, 1)}
+                            className="w-8 h-8 flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white active:scale-90 transition-all"
+                            title="Tambah"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -490,61 +610,79 @@ export function KasirView({
             </div>
 
             <div className="p-3 overflow-y-auto flex-1 divide-y divide-stone-100">
-              {cart.map((item) => (
-                <div key={item.product.id} className="py-2.5 flex items-center justify-between gap-2">
-                  <div className="w-10 h-10 rounded-xl bg-stone-100 border border-stone-200 flex items-center justify-center text-lg overflow-hidden shrink-0 shadow-xs">
-                    {item.product.image && (item.product.image.startsWith('data:') || item.product.image.startsWith('http')) ? (
-                      <img
-                        src={item.product.image}
-                        alt={item.product.name}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <span>{item.product.image || '📦'}</span>
-                    )}
-                  </div>
+              {cart.map((item, idx) => {
+                const itemKey = item.itemKey || `${item.product.id}-${item.unitType || 'pack'}`;
+                const isRetail = item.unitType === 'retail';
+                const unitPrice = item.unitPrice || (isRetail ? (item.product.retailPrice || item.product.price) : item.product.price);
+                const unitName = item.unitName || (isRetail ? (item.product.retailUnit || 'Batang') : (item.product.unit || 'pcs'));
 
-                  <div className="flex-1 pr-2 min-w-0">
-                    <div className="font-bold text-xs sm:text-sm text-stone-900 truncate">
-                      {item.product.name}
+                return (
+                  <div key={itemKey || idx} className="py-2.5 flex items-center justify-between gap-2">
+                    <div className="w-10 h-10 rounded-xl bg-stone-100 border border-stone-200 flex items-center justify-center text-lg overflow-hidden shrink-0 shadow-xs">
+                      {item.product.image && (item.product.image.startsWith('data:') || item.product.image.startsWith('http')) ? (
+                        <img
+                          src={item.product.image}
+                          alt={item.product.name}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span>{item.product.image || '📦'}</span>
+                      )}
                     </div>
-                    <div className="text-[11px] text-stone-500">
-                      {formatRupiah(item.product.price)} x {item.quantity} ={' '}
-                      <span className="font-bold text-emerald-700">
-                        {formatRupiah(item.subtotal)}
-                      </span>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center gap-1.5">
-                    <div className="flex items-center bg-stone-100 rounded-lg border border-stone-300">
+                    <div className="flex-1 pr-2 min-w-0">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="font-bold text-xs sm:text-sm text-stone-900 truncate">
+                          {item.product.name}
+                        </span>
+                        {isRetail ? (
+                          <span className="text-[9px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded-full shrink-0">
+                            Ecer ({unitName})
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-medium text-stone-600 bg-stone-100 px-1.5 py-0.5 rounded-full shrink-0">
+                            {unitName}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-stone-500">
+                        {formatRupiah(unitPrice)} x {item.quantity} ={' '}
+                        <span className="font-bold text-emerald-700">
+                          {formatRupiah(item.subtotal)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <div className="flex items-center bg-stone-100 rounded-lg border border-stone-300">
+                        <button
+                          onClick={() => onUpdateQuantity(itemKey, -1)}
+                          className="w-7 h-7 flex items-center justify-center text-stone-700 hover:bg-stone-200 rounded-l-lg"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="w-7 text-center font-bold text-xs text-stone-900">
+                          {item.quantity}
+                        </span>
+                        <button
+                          onClick={() => onUpdateQuantity(itemKey, 1)}
+                          className="w-7 h-7 flex items-center justify-center text-stone-700 hover:bg-stone-200 rounded-r-lg"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+
                       <button
-                        onClick={() => onUpdateQuantity(item.product.id, -1)}
-                        className="w-7 h-7 flex items-center justify-center text-stone-700 hover:bg-stone-200 rounded-l-lg"
+                        onClick={() => onRemoveFromCart(itemKey)}
+                        className="p-1.5 text-stone-400 hover:text-rose-600 rounded-lg"
                       >
-                        <Minus className="w-3 h-3" />
-                      </button>
-                      <span className="w-7 text-center font-bold text-xs text-stone-900">
-                        {item.quantity}
-                      </span>
-                      <button
-                        onClick={() => onUpdateQuantity(item.product.id, 1)}
-                        className="w-7 h-7 flex items-center justify-center text-stone-700 hover:bg-stone-200 rounded-r-lg"
-                      >
-                        <Plus className="w-3 h-3" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
-
-                    <button
-                      onClick={() => onRemoveFromCart(item.product.id)}
-                      className="p-1.5 text-stone-400 hover:text-rose-600 rounded-lg"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="p-3 bg-stone-50 border-t border-stone-200 space-y-2">

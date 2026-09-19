@@ -69,6 +69,13 @@ export function ProductManager({
   const [stock, setStock] = useState('50');
   const [image, setImage] = useState('📦');
 
+  // Fitur Jual Ecer (Contoh: Rokok per Batang / Telur per Butir)
+  const [allowRetail, setAllowRetail] = useState(false);
+  const [retailUnit, setRetailUnit] = useState('Batang');
+  const [retailPrice, setRetailPrice] = useState('');
+  const [retailCostPrice, setRetailCostPrice] = useState('');
+  const [retailRatio, setRetailRatio] = useState('16');
+
   // Image Tab in Modal: 'upload' (Galeri/Kamera) | 'url' (Link Web) | 'icon' (Emoji Warung)
   const [imageTab, setImageTab] = useState<'upload' | 'url' | 'icon'>('upload');
   const [imageUrlInput, setImageUrlInput] = useState('');
@@ -116,6 +123,11 @@ export function ProductManager({
     setImageError(false);
     setDismissSimilarBanner(false);
     setDuplicateConfirmation(null);
+    setAllowRetail(false);
+    setRetailUnit('Batang');
+    setRetailPrice('');
+    setRetailCostPrice('');
+    setRetailRatio('16');
     setModalOpen(true);
   };
 
@@ -131,6 +143,11 @@ export function ProductManager({
     setImageError(false);
     setDismissSimilarBanner(true);
     setDuplicateConfirmation(null);
+    setAllowRetail(!!prod.allowRetail);
+    setRetailUnit(prod.retailUnit || (prod.category === 'Rokok' ? 'Batang' : 'Pcs'));
+    setRetailPrice(prod.retailPrice !== undefined ? prod.retailPrice.toString() : '');
+    setRetailCostPrice(prod.retailCostPrice !== undefined ? prod.retailCostPrice.toString() : '');
+    setRetailRatio(prod.retailRatio !== undefined ? prod.retailRatio.toString() : '16');
     if (prod.image && prod.image.startsWith('http')) {
       setImageTab('url');
       setImageUrlInput(prod.image);
@@ -227,6 +244,9 @@ export function ProductManager({
     const costNum = costPrice ? parseFloat(costPrice) : existingProd.costPrice;
     const stockNum = stock ? parseInt(stock, 10) : existingProd.stock;
     const customImage = image && image !== '📦' ? image : existingProd.image;
+    const retPriceNum = retailPrice ? parseFloat(retailPrice) : undefined;
+    const retCostNum = retailCostPrice ? parseFloat(retailCostPrice) : undefined;
+    const retRatioNum = retailRatio ? parseInt(retailRatio, 10) : undefined;
 
     const updated: Product = {
       ...existingProd,
@@ -234,6 +254,11 @@ export function ProductManager({
       costPrice: costNum,
       stock: stockNum,
       image: customImage,
+      allowRetail: allowRetail,
+      retailUnit: allowRetail ? (retailUnit.trim() || 'Batang') : undefined,
+      retailPrice: allowRetail ? retPriceNum : undefined,
+      retailCostPrice: allowRetail ? retCostNum : undefined,
+      retailRatio: allowRetail ? retRatioNum : undefined,
     };
 
     onSaveProduct(updated);
@@ -255,6 +280,9 @@ export function ProductManager({
 
     const costNum = costPrice ? parseFloat(costPrice) : undefined;
     const stockNum = stock ? parseInt(stock, 10) : undefined;
+    const retPriceNum = retailPrice ? parseFloat(retailPrice) : undefined;
+    const retCostNum = retailCostPrice ? parseFloat(retailCostPrice) : undefined;
+    const retRatioNum = retailRatio ? parseInt(retailRatio, 10) : undefined;
 
     const newProd: Product = {
       id: `prod-${Date.now()}`,
@@ -266,6 +294,11 @@ export function ProductManager({
       stock: stockNum,
       image: image || '📦',
       createdAt: new Date().toISOString(),
+      allowRetail: allowRetail,
+      retailUnit: allowRetail ? (retailUnit.trim() || 'Batang') : undefined,
+      retailPrice: allowRetail ? retPriceNum : undefined,
+      retailCostPrice: allowRetail ? retCostNum : undefined,
+      retailRatio: allowRetail ? retRatioNum : undefined,
     };
 
     onSaveProduct(newProd);
@@ -294,6 +327,9 @@ export function ProductManager({
 
     const costNum = costPrice ? parseFloat(costPrice) : undefined;
     const stockNum = stock ? parseInt(stock, 10) : undefined;
+    const retPriceNum = retailPrice ? parseFloat(retailPrice) : undefined;
+    const retCostNum = retailCostPrice ? parseFloat(retailCostPrice) : undefined;
+    const retRatioNum = retailRatio ? parseInt(retailRatio, 10) : undefined;
 
     const newProd: Product = {
       id: editingProduct ? editingProduct.id : `prod-${Date.now()}`,
@@ -305,6 +341,11 @@ export function ProductManager({
       stock: stockNum,
       image: image || '📦',
       createdAt: editingProduct?.createdAt || new Date().toISOString(),
+      allowRetail: allowRetail,
+      retailUnit: allowRetail ? (retailUnit.trim() || 'Batang') : undefined,
+      retailPrice: allowRetail ? retPriceNum : undefined,
+      retailCostPrice: allowRetail ? retCostNum : undefined,
+      retailRatio: allowRetail ? retRatioNum : undefined,
     };
 
     onSaveProduct(newProd);
@@ -564,11 +605,20 @@ export function ProductManager({
 
                     {/* Details */}
                     <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-bold text-sm text-stone-900 truncate">{p.name}</span>
                         <span className="text-[10px] text-stone-500 bg-stone-100 px-1.5 py-0.2 rounded shrink-0">
                           {p.category}
                         </span>
+                        {p.allowRetail && (
+                          <span className="text-[10px] font-bold text-amber-800 bg-amber-100/90 border border-amber-300 px-1.5 py-0.2 rounded-md shrink-0 flex items-center gap-0.5">
+                            <span>Ecer:</span>
+                            <span className="text-amber-900 font-extrabold">
+                              {p.retailPrice ? formatRupiah(p.retailPrice) : '-'}
+                            </span>
+                            <span className="text-amber-700 font-medium">/{p.retailUnit || 'Batang'}</span>
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2 text-xs mt-0.5">
@@ -1108,6 +1158,147 @@ export function ProductManager({
                     <option value="liter" />
                   </datalist>
                 </div>
+              </div>
+
+              {/* Fitur Jual Ecer / Satuan Kecil (Rokok per Batang, Kopi Sachet, Telur Butir, dll) */}
+              <div className="bg-amber-50/60 rounded-2xl border border-amber-200/80 p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">✂️</span>
+                    <div>
+                      <h4 className="text-xs font-bold text-amber-950">
+                        Izinkan Jual Ecer / Satuan Kecil
+                      </h4>
+                      <p className="text-[10px] text-amber-800">
+                        Contoh: Rokok per batang, Kopi per sachet, Telur per butir
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !allowRetail;
+                      setAllowRetail(next);
+                      if (next && !retailUnit) {
+                        setRetailUnit(category === 'Rokok' || name.toLowerCase().includes('rokok') ? 'Batang' : 'Pcs');
+                      }
+                    }}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      allowRetail ? 'bg-amber-600' : 'bg-stone-300'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                        allowRetail ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {allowRetail && (
+                  <div className="space-y-2.5 pt-1 border-t border-amber-200/60 animate-in fade-in duration-200">
+                    {/* Satuan Ecer Selector */}
+                    <div>
+                      <label className="text-[11px] font-bold text-amber-900 block mb-1">
+                        Nama Satuan Ecer:
+                      </label>
+                      <div className="flex flex-wrap gap-1.5 mb-1.5">
+                        {['Batang', 'Butir', 'Sachet', 'Pcs', 'Keping', 'Bungkus', 'Potong'].map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => setRetailUnit(preset)}
+                            className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold transition-all ${
+                              retailUnit.toLowerCase() === preset.toLowerCase()
+                                ? 'bg-amber-700 text-white shadow-xs'
+                                : 'bg-white text-amber-900 border border-amber-300 hover:bg-amber-100'
+                            }`}
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
+                      <input
+                        type="text"
+                        value={retailUnit}
+                        onChange={(e) => setRetailUnit(e.target.value)}
+                        placeholder="Batang"
+                        className="w-full border border-amber-300 bg-white rounded-xl px-3 py-1.5 text-xs text-stone-800 focus:outline-none focus:border-amber-600"
+                        required={allowRetail}
+                      />
+                    </div>
+
+                    {/* Harga Ecer & Modal Ecer */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[11px] font-bold text-amber-900 block mb-1">
+                          Harga Jual Ecer (Rp):
+                        </label>
+                        <input
+                          type="number"
+                          value={retailPrice}
+                          onChange={(e) => setRetailPrice(e.target.value)}
+                          placeholder="2500"
+                          className="w-full border border-amber-400 bg-amber-50/50 rounded-xl px-3 py-1.5 text-xs font-bold text-amber-950 focus:outline-none focus:border-amber-600"
+                          required={allowRetail}
+                          min="100"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-stone-600 block mb-1">
+                          Modal Ecer (Rp) - Opsional:
+                        </label>
+                        <input
+                          type="number"
+                          value={retailCostPrice}
+                          onChange={(e) => setRetailCostPrice(e.target.value)}
+                          placeholder="2000"
+                          className="w-full border border-stone-300 bg-white rounded-xl px-3 py-1.5 text-xs text-stone-800 focus:outline-none focus:border-amber-600"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Rasio: Isi per Satuan Utama */}
+                    <div>
+                      <label className="text-[11px] font-medium text-amber-900 block mb-1">
+                        Isi per 1 {unit || 'Bungkus/Pack'} (Jumlah {retailUnit || 'Batang'}):
+                      </label>
+                      <input
+                        type="number"
+                        value={retailRatio}
+                        onChange={(e) => setRetailRatio(e.target.value)}
+                        placeholder="16 (contoh 1 bungkus isi 16 batang)"
+                        className="w-full border border-amber-300 bg-white rounded-xl px-3 py-1.5 text-xs text-stone-800 focus:outline-none focus:border-amber-600"
+                        min="1"
+                      />
+                    </div>
+
+                    {/* Kalkulasi Potensi Untung Ecer */}
+                    {retailPrice && parseFloat(retailPrice) > 0 && price && parseFloat(price) > 0 && (
+                      <div className="bg-amber-100/80 rounded-xl p-2 text-[11px] text-amber-950 border border-amber-300/80 space-y-0.5">
+                        <div className="font-bold flex items-center gap-1 text-amber-900">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-700" />
+                          <span>Perbandingan Harga:</span>
+                        </div>
+                        <div>
+                          1 {unit || 'Bungkus'} = <strong>{formatRupiah(parseFloat(price))}</strong>
+                        </div>
+                        <div>
+                          1 {retailUnit || 'Batang'} = <strong>{formatRupiah(parseFloat(retailPrice))}</strong>
+                        </div>
+                        {retailRatio && parseInt(retailRatio, 10) > 0 && (
+                          <div className="pt-0.5 font-semibold text-emerald-800">
+                            Jika 1 {unit || 'Bungkus'} habis diecer ({retailRatio} {retailUnit}):{' '}
+                            <strong>{formatRupiah(parseFloat(retailPrice) * parseInt(retailRatio, 10))}</strong>{' '}
+                            <span className="text-emerald-700 text-[10px]">
+                              (+{formatRupiah((parseFloat(retailPrice) * parseInt(retailRatio, 10)) - parseFloat(price))})
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 

@@ -106,31 +106,58 @@ export default function App() {
     }
   };
 
-  // Cart Handlers
-  const handleAddToCart = (product: Product) => {
-    setCart((prev) => {
-      const existing = prev.find((item) => item.product.id === product.id);
-      if (existing) {
-        return prev.map((item) =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + 1, subtotal: (item.quantity + 1) * item.product.price }
-            : item
-        );
-      }
-      return [...prev, { product, quantity: 1, subtotal: product.price }];
-    });
-  };
+  // Cart Handlers with Pack & Retail Support
+  const handleAddToCart = (product: Product, unitType: 'pack' | 'retail' = 'pack') => {
+    const isRetail = unitType === 'retail';
+    const unitPrice = isRetail ? (product.retailPrice || product.price) : product.price;
+    const unitName = isRetail ? (product.retailUnit || 'Batang') : (product.unit || 'pcs');
+    const itemKey = `${product.id}-${unitType}`;
 
-  const handleUpdateQuantity = (productId: string, delta: number) => {
     setCart((prev) => {
-      return prev
-        .map((item) => {
-          if (item.product.id === productId) {
-            const newQty = item.quantity + delta;
+      const existing = prev.find(
+        (item) => (item.itemKey || `${item.product.id}-${item.unitType || 'pack'}`) === itemKey
+      );
+      if (existing) {
+        return prev.map((item) => {
+          const k = item.itemKey || `${item.product.id}-${item.unitType || 'pack'}`;
+          if (k === itemKey) {
+            const newQty = item.quantity + 1;
             return {
               ...item,
               quantity: newQty,
-              subtotal: newQty * item.product.price,
+              subtotal: newQty * (item.unitPrice || unitPrice),
+            };
+          }
+          return item;
+        });
+      }
+      return [
+        ...prev,
+        {
+          product,
+          quantity: 1,
+          subtotal: unitPrice,
+          unitType,
+          unitName,
+          unitPrice,
+          itemKey,
+        },
+      ];
+    });
+  };
+
+  const handleUpdateQuantity = (itemKeyOrId: string, delta: number) => {
+    setCart((prev) => {
+      return prev
+        .map((item) => {
+          const k = item.itemKey || `${item.product.id}-${item.unitType || 'pack'}`;
+          if (k === itemKeyOrId || item.product.id === itemKeyOrId) {
+            const newQty = item.quantity + delta;
+            const price = item.unitPrice || item.product.price;
+            return {
+              ...item,
+              quantity: newQty,
+              subtotal: newQty * price,
             };
           }
           return item;
@@ -139,8 +166,13 @@ export default function App() {
     });
   };
 
-  const handleRemoveFromCart = (productId: string) => {
-    setCart((prev) => prev.filter((item) => item.product.id !== productId));
+  const handleRemoveFromCart = (itemKeyOrId: string) => {
+    setCart((prev) =>
+      prev.filter((item) => {
+        const k = item.itemKey || `${item.product.id}-${item.unitType || 'pack'}`;
+        return k !== itemKeyOrId && item.product.id !== itemKeyOrId;
+      })
+    );
   };
 
   const handleClearCart = () => {
@@ -150,11 +182,20 @@ export default function App() {
   // Complete Transaction Handler
   const handleCompleteTransaction = (newTransaction: Transaction) => {
     updateDatabase((prev) => {
-      // 1. If stock is tracked, deduct stock
+      // 1. If stock is tracked, deduct stock (handling pack & retail fractions)
       const updatedProducts = prev.products.map((p) => {
-        const cartItem = newTransaction.items.find((i) => i.productId === p.id);
-        if (cartItem && p.stock !== undefined) {
-          return { ...p, stock: Math.max(0, p.stock - cartItem.quantity) };
+        const cartItems = newTransaction.items.filter((i) => i.productId === p.id);
+        if (cartItems.length > 0 && p.stock !== undefined) {
+          let totalDeduction = 0;
+          cartItems.forEach((ci) => {
+            if (ci.unitType === 'retail' && p.retailRatio && p.retailRatio > 0) {
+              totalDeduction += ci.quantity / p.retailRatio;
+            } else {
+              totalDeduction += ci.quantity;
+            }
+          });
+          const newStock = Math.max(0, Math.round((p.stock - totalDeduction) * 100) / 100);
+          return { ...p, stock: newStock };
         }
         return p;
       });

@@ -12,15 +12,16 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['apple-touch-icon.png', 'icon.svg'],
+        includeAssets: ['apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'],
         manifest: {
-          id: '/',
+          id: 'warung-kalkulator-app',
           name: 'Kalkulator Warung & Kasir',
           short_name: 'WarungKasir',
           description: 'Aplikasi kasir warung offline-first, hitung kembalian, buku kas & hutang.',
           theme_color: '#059669',
-          background_color: '#f5f5f4',
+          background_color: '#ffffff',
           display: 'standalone',
+          orientation: 'portrait',
           start_url: './',
           scope: './',
           icons: [
@@ -46,6 +47,7 @@ export default defineConfig(() => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          cleanupOutdatedCaches: true,
         },
         devOptions: {
           enabled: true,
@@ -53,6 +55,10 @@ export default defineConfig(() => {
         },
       }),
     ],
+    build: {
+      target: ['es2015', 'chrome66', 'safari12'],
+      cssTarget: ['chrome66', 'safari12'],
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

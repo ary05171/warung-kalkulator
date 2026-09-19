@@ -35,6 +35,13 @@ export function ReceiptModal({ transaction, db, onClose }: ReceiptModalProps) {
       text += `${idx + 1}. ${item.name}\n`;
       text += `   ${item.quantity} ${item.unit || 'pcs'} x ${formatRupiah(item.price)} = ${formatRupiah(item.subtotal)}\n`;
     });
+    if (transaction.otherFees && transaction.otherFees.length > 0) {
+      text += `--------------------------------\n`;
+      text += `Subtotal Barang: ${formatRupiah(transaction.subtotalAmount || (transaction.totalAmount - (transaction.otherFeeTotal || 0)))}\n`;
+      transaction.otherFees.forEach((fee) => {
+        text += `+ ${fee.name}: ${formatRupiah(fee.amount)}\n`;
+      });
+    }
     text += `--------------------------------\n`;
     text += `*TOTAL BELANJA : ${formatRupiah(transaction.totalAmount)}*\n`;
     if (transaction.paymentType === 'cash') {
@@ -150,6 +157,26 @@ export function ReceiptModal({ transaction, db, onClose }: ReceiptModalProps) {
                   <div className="font-bold text-stone-900">{formatRupiah(item.subtotal)}</div>
                 </div>
               ))}
+
+              {transaction.otherFees && transaction.otherFees.length > 0 && (
+                <div className="pt-1 border-t border-dotted border-stone-300 space-y-1 text-[11px] text-stone-600">
+                  <div className="flex justify-between">
+                    <span>Subtotal Barang:</span>
+                    <span>
+                      {formatRupiah(
+                        transaction.subtotalAmount ||
+                          transaction.totalAmount - (transaction.otherFeeTotal || 0)
+                      )}
+                    </span>
+                  </div>
+                  {transaction.otherFees.map((fee) => (
+                    <div key={fee.id} className="flex justify-between text-amber-900 font-medium">
+                      <span>+ {fee.name}:</span>
+                      <span>{formatRupiah(fee.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="border-t border-dashed border-stone-300 pt-2 space-y-1">

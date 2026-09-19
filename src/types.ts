@@ -9,12 +9,23 @@ export interface Product {
   stock?: number;
   favorite?: boolean;
   createdAt?: string;
+
+  // Fitur Jual Ecer (misal Rokok per Batang, Telur per Butir, Kopi per Sachet)
+  allowRetail?: boolean;
+  retailUnit?: string;
+  retailPrice?: number;
+  retailCostPrice?: number;
+  retailRatio?: number;
 }
 
 export interface CartItem {
   product: Product;
   quantity: number;
   subtotal: number;
+  unitType?: 'pack' | 'retail';
+  unitName?: string;
+  unitPrice?: number;
+  itemKey?: string;
 }
 
 export interface TransactionItem {
@@ -25,6 +36,13 @@ export interface TransactionItem {
   quantity: number;
   unit: string;
   subtotal: number;
+  unitType?: 'pack' | 'retail';
+}
+
+export interface OtherFee {
+  id: string;
+  name: string;
+  amount: number;
 }
 
 export interface Transaction {
@@ -32,6 +50,9 @@ export interface Transaction {
   invoiceNumber: string;
   timestamp: string;
   items: TransactionItem[];
+  subtotalAmount?: number;
+  otherFees?: OtherFee[];
+  otherFeeTotal?: number;
   totalAmount: number;
   cashGiven: number;
   change: number;

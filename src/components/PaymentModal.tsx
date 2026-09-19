@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { CartItem, Transaction, WarungDatabase } from '../types';
+import { CartItem, Transaction, WarungDatabase, OtherFee } from '../types';
 import { formatRupiah } from '../utils/storage';
 import {
   X,
@@ -17,6 +17,10 @@ import {
   Calendar,
   Phone,
   MessageSquare,
+  Plus,
+  Trash2,
+  Truck,
+  ShoppingBag,
 } from 'lucide-react';
 
 interface PaymentModalProps {
@@ -36,13 +40,27 @@ export function PaymentModal({ cart, db, onClose, onComplete }: PaymentModalProp
   const [isCustomTotal, setIsCustomTotal] = useState(false);
   const [customTotalStr, setCustomTotalStr] = useState<string>(totalCartAmount.toString());
 
-  const totalAmount = useMemo(() => {
+  // Fitur Biaya Lain (Ongkir, Kantong Plastik, Admin, Bungkus, dll)
+  const [otherFees, setOtherFees] = useState<OtherFee[]>([]);
+  const [showAddFeeModal, setShowAddFeeModal] = useState(false);
+  const [customFeeName, setCustomFeeName] = useState('');
+  const [customFeeAmount, setCustomFeeAmount] = useState('');
+
+  const otherFeeTotal = useMemo(() => {
+    return otherFees.reduce((sum, fee) => sum + fee.amount, 0);
+  }, [otherFees]);
+
+  const baseItemsTotal = useMemo(() => {
     if (isCustomTotal) {
       const parsed = parseFloat(customTotalStr);
       if (!isNaN(parsed) && parsed >= 0) return parsed;
     }
     return totalCartAmount;
   }, [isCustomTotal, customTotalStr, totalCartAmount]);
+
+  const totalAmount = useMemo(() => {
+    return baseItemsTotal + otherFeeTotal;
+  }, [baseItemsTotal, otherFeeTotal]);
 
   // Payment type: 'cash' (tunai lunas), 'debt' (hutang penuh), 'partial_debt' (kostum DP + sisa hutang)
   const [paymentType, setPaymentType] = useState<'cash' | 'debt' | 'partial_debt'>('cash');
@@ -65,6 +83,58 @@ export function PaymentModal({ cart, db, onClose, onComplete }: PaymentModalProp
 
   // Sisa hutang jika bayar sebagian (partial_debt)
   const remainingDebt = Math.max(0, totalAmount - cashGiven);
+
+  const handleAddPresetFee = (name: string, amount: number) => {
+    const newFee: OtherFee = {
+      id: `fee-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      name,
+      amount,
+    };
+    setOtherFees((prev) => [...prev, newFee]);
+    setCashGivenStr((prev) => {
+      const current = parseFloat(prev) || 0;
+      if (current === totalAmount || current === 0) {
+        return (totalAmount + amount).toString();
+      }
+      return prev;
+    });
+  };
+
+  const handleAddCustomFeeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const amountNum = parseFloat(customFeeAmount);
+    if (!customFeeName.trim() || isNaN(amountNum) || amountNum <= 0) return;
+
+    const newFee: OtherFee = {
+      id: `fee-${Date.now()}`,
+      name: customFeeName.trim(),
+      amount: amountNum,
+    };
+    setOtherFees((prev) => [...prev, newFee]);
+    setCashGivenStr((prev) => {
+      const current = parseFloat(prev) || 0;
+      if (current === totalAmount || current === 0) {
+        return (totalAmount + amountNum).toString();
+      }
+      return prev;
+    });
+    setCustomFeeName('');
+    setCustomFeeAmount('');
+    setShowAddFeeModal(false);
+  };
+
+  const handleRemoveFee = (id: string) => {
+    const target = otherFees.find((f) => f.id === id);
+    if (!target) return;
+    setOtherFees((prev) => prev.filter((f) => f.id !== id));
+    setCashGivenStr((prev) => {
+      const current = parseFloat(prev) || 0;
+      if (current === totalAmount) {
+        return Math.max(0, totalAmount - target.amount).toString();
+      }
+      return prev;
+    });
+  };
 
   // Suggested amounts with zeros for quick tap & insert
   const zeroSuggestions = useMemo(() => {
@@ -165,12 +235,16 @@ export function PaymentModal({ cart, db, onClose, onComplete }: PaymentModalProp
       items: cart.map((c) => ({
         productId: c.product.id,
         name: c.product.name,
-        price: c.product.price,
-        costPrice: c.product.costPrice,
+        price: c.unitPrice || c.product.price,
+        costPrice: c.unitType === 'retail' ? (c.product.retailCostPrice || c.product.costPrice) : c.product.costPrice,
         quantity: c.quantity,
-        unit: c.product.unit,
+        unit: c.unitName || c.product.unit,
         subtotal: c.subtotal,
+        unitType: c.unitType,
       })),
+      subtotalAmount: baseItemsTotal,
+      otherFees: otherFees.length > 0 ? otherFees : undefined,
+      otherFeeTotal: otherFeeTotal > 0 ? otherFeeTotal : undefined,
       totalAmount,
       cashGiven: paymentType === 'cash' ? cashGiven : paidAmount,
       change: paymentType === 'cash' ? change : 0,
@@ -294,7 +368,172 @@ export function PaymentModal({ cart, db, onClose, onComplete }: PaymentModalProp
                 </div>
               </div>
             ) : null}
+
+            {/* Biaya Lain / Biaya Tambahan List & Summary */}
+            <div className="mt-3 pt-2.5 border-t border-stone-800/80 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-stone-300">
+                  <Truck className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Biaya Tambahan / Ongkir / Biaya Lain</span>
+                </div>
+                {otherFeeTotal > 0 && (
+                  <span className="text-xs font-black text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded-md border border-amber-800">
+                    +{formatRupiah(otherFeeTotal)}
+                  </span>
+                )}
+              </div>
+
+              {/* List of Applied Other Fees */}
+              {otherFees.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  {otherFees.map((fee) => (
+                    <div
+                      key={fee.id}
+                      className="flex items-center justify-between bg-stone-900 px-2.5 py-1.5 rounded-xl border border-stone-800 text-xs"
+                    >
+                      <span className="text-stone-300 font-medium">{fee.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-amber-400">+{formatRupiah(fee.amount)}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFee(fee.id)}
+                          className="p-1 rounded-md text-stone-400 hover:text-rose-400 hover:bg-stone-800 transition-colors"
+                          title="Hapus Biaya"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Quick Preset Buttons for Other Fees */}
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                <button
+                  type="button"
+                  id="btn-fee-ongkir-5k"
+                  onClick={() => handleAddPresetFee('Ongkir / Antar', 5000)}
+                  className="px-2 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[11px] font-semibold flex items-center gap-1 active:scale-95 transition-all"
+                >
+                  <Plus className="w-3 h-3 text-emerald-400" />
+                  <span>Ongkir 5rb</span>
+                </button>
+                <button
+                  type="button"
+                  id="btn-fee-ongkir-10k"
+                  onClick={() => handleAddPresetFee('Ongkir / Antar', 10000)}
+                  className="px-2 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[11px] font-semibold flex items-center gap-1 active:scale-95 transition-all"
+                >
+                  <Plus className="w-3 h-3 text-emerald-400" />
+                  <span>Ongkir 10rb</span>
+                </button>
+                <button
+                  type="button"
+                  id="btn-fee-plastik-500"
+                  onClick={() => handleAddPresetFee('Kantong Plastik', 500)}
+                  className="px-2 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[11px] font-semibold flex items-center gap-1 active:scale-95 transition-all"
+                >
+                  <Plus className="w-3 h-3 text-amber-400" />
+                  <span>Plastik Rp500</span>
+                </button>
+                <button
+                  type="button"
+                  id="btn-fee-plastik-1k"
+                  onClick={() => handleAddPresetFee('Kantong Plastik Besar', 1000)}
+                  className="px-2 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[11px] font-semibold flex items-center gap-1 active:scale-95 transition-all"
+                >
+                  <Plus className="w-3 h-3 text-amber-400" />
+                  <span>Plastik 1rb</span>
+                </button>
+                <button
+                  type="button"
+                  id="btn-fee-admin-2k"
+                  onClick={() => handleAddPresetFee('Biaya Admin', 2000)}
+                  className="px-2 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-[11px] font-semibold flex items-center gap-1 active:scale-95 transition-all"
+                >
+                  <Plus className="w-3 h-3 text-sky-400" />
+                  <span>Admin 2rb</span>
+                </button>
+                <button
+                  type="button"
+                  id="btn-fee-custom"
+                  onClick={() => setShowAddFeeModal(true)}
+                  className="px-2 py-1 rounded-lg bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 border border-emerald-700/60 text-[11px] font-bold flex items-center gap-1 active:scale-95 transition-all"
+                >
+                  <Plus className="w-3 h-3 text-emerald-400" />
+                  <span>+ Biaya Kustom...</span>
+                </button>
+              </div>
+            </div>
           </div>
+
+          {/* Modal Popover Input Biaya Kustom */}
+          {showAddFeeModal && (
+            <div className="bg-stone-950 p-3 rounded-2xl border border-emerald-500/60 space-y-2.5 animate-in zoom-in-95">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                  <Plus className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Tambah Biaya Lain Kustom</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowAddFeeModal(false)}
+                  className="p-1 text-stone-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleAddCustomFeeSubmit} className="space-y-2">
+                <div>
+                  <label className="text-[11px] text-stone-400 block mb-1">
+                    Nama Biaya / Keterangan:
+                  </label>
+                  <input
+                    type="text"
+                    value={customFeeName}
+                    onChange={(e) => setCustomFeeName(e.target.value)}
+                    placeholder="Contoh: Ongkir Gojek / Jasa Bungkus / Kardus"
+                    className="w-full bg-stone-900 border border-stone-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-stone-500 focus:outline-none focus:border-emerald-500"
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-stone-400 block mb-1">
+                    Nominal Biaya (Rp):
+                  </label>
+                  <input
+                    type="number"
+                    value={customFeeAmount}
+                    onChange={(e) => setCustomFeeAmount(e.target.value)}
+                    placeholder="Contoh: 7500"
+                    className="w-full bg-stone-900 border border-stone-700 rounded-xl px-3 py-1.5 text-xs font-bold text-amber-300 focus:outline-none focus:border-emerald-500"
+                    required
+                    min="100"
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddFeeModal(false)}
+                    className="flex-1 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-xs text-stone-300 font-semibold"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-bold shadow-md active:scale-95 transition-all"
+                  >
+                    Tambahkan Biaya
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
 
           {/* Payment Type Switcher: Tunai vs Bayar Sebagian (Kostum DP) vs Hutang Penuh */}
           <div>
