@@ -1,16 +1,4 @@
 import { useState, useMemo } from 'react';
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-} from 'recharts';
 import { WarungDatabase } from '../types';
 import { formatRupiah } from '../utils/storage';
 import {
@@ -25,7 +13,6 @@ import {
   LineChart as LineChartIcon,
   ChevronLeft,
   ChevronRight,
-  Filter,
 } from 'lucide-react';
 
 export type TimeGranularity = 'jam' | 'bulan' | 'tahun';
@@ -64,6 +51,16 @@ const MONTH_SHORT = [
   'Des',
 ];
 
+function formatShortRupiah(val: number): string {
+  if (Math.abs(val) >= 1_000_000) {
+    return `${(val / 1_000_000).toFixed(1)}jt`;
+  }
+  if (Math.abs(val) >= 1_000) {
+    return `${(val / 1_000).toFixed(0)}rb`;
+  }
+  return val.toString();
+}
+
 export function CashFlowChart({ db }: CashFlowChartProps) {
   const currentDate = useMemo(() => new Date(), []);
 
@@ -85,6 +82,9 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
   const [showKeluar, setShowKeluar] = useState(true);
   const [showLaci, setShowLaci] = useState(true);
   const [showBon, setShowBon] = useState(true);
+
+  // Active hover/tap index for tooltip
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   // Available years from data + current year
   const availableYears = useMemo(() => {
@@ -108,7 +108,6 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
   // Aggregate Chart Data based on granularity
   const chartData = useMemo(() => {
     if (granularity === 'jam') {
-      // 24 hours of the selected date (00:00 to 23:00)
       const hoursData: Array<{
         key: string;
         label: string;
@@ -138,9 +137,7 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
             if (t.paymentType === 'cash') {
               hoursData[hour].masuk += t.totalAmount;
             } else if (t.paymentType === 'debt') {
-              // Hutang baru dicatat
               hoursData[hour].bon += t.totalAmount;
-              // Jika ada DP tunai
               if (t.debtPaidAmount && t.debtPaidAmount > 0) {
                 hoursData[hour].masuk += t.debtPaidAmount;
               }
@@ -175,12 +172,11 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
         }
       });
 
-      // Calculate net Laci = masuk - keluar
       hoursData.forEach((item) => {
         item.laci = item.masuk - item.keluar;
       });
 
-      // Find first and last active hours to display a focused range or 06:00-22:00
+      // Focus on active business hours (e.g. 06:00 to 22:00 or active bounds)
       const activeIndices = hoursData
         .map((item, idx) => (item.masuk > 0 || item.keluar > 0 || item.bon > 0 ? idx : -1))
         .filter((idx) => idx !== -1);
@@ -192,7 +188,6 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
     }
 
     if (granularity === 'bulan') {
-      // Days in selectedMonth of selectedYear
       const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
       const monthPrefix = `${selectedYear}-${(selectedMonth + 1).toString().padStart(2, '0')}`;
 
@@ -210,7 +205,7 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
         const fullDate = `${monthPrefix}-${dStr}`;
         daysData.push({
           key: fullDate,
-          label: `Tgl ${d}`,
+          label: `${d}`,
           masuk: 0,
           keluar: 0,
           laci: 0,
@@ -218,7 +213,6 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
         });
       }
 
-      // 1. Transactions in that month
       db.transactions.forEach((t) => {
         if (t.timestamp.startsWith(monthPrefix)) {
           const day = new Date(t.timestamp).getDate();
@@ -236,7 +230,6 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
         }
       });
 
-      // 2. Debt repayments
       db.debts.forEach((d) => {
         (d.payments || []).forEach((p) => {
           if (p.date.startsWith(monthPrefix)) {
@@ -248,7 +241,6 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
         });
       });
 
-      // 3. Cash Entries
       db.cashEntries.forEach((c) => {
         if (c.timestamp.startsWith(monthPrefix)) {
           const day = new Date(c.timestamp).getDate();
@@ -271,7 +263,6 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
     }
 
     // granularity === 'tahun'
-    // 12 months of selectedYear
     const yearPrefix = `${selectedYear}-`;
     const monthsData: Array<{
       key: string;
@@ -293,7 +284,6 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
       });
     }
 
-    // 1. Transactions in that year
     db.transactions.forEach((t) => {
       if (t.timestamp.startsWith(yearPrefix)) {
         const m = new Date(t.timestamp).getMonth();
@@ -310,7 +300,6 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
       }
     });
 
-    // 2. Debt repayments
     db.debts.forEach((d) => {
       (d.payments || []).forEach((p) => {
         if (p.date.startsWith(yearPrefix)) {
@@ -322,7 +311,6 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
       });
     });
 
-    // 3. Cash Entries
     db.cashEntries.forEach((c) => {
       if (c.timestamp.startsWith(yearPrefix)) {
         const m = new Date(c.timestamp).getMonth();
@@ -359,6 +347,21 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
     return { totalMasuk, totalKeluar, saldoLaci, totalBon };
   }, [chartData]);
 
+  // Find maximum value to scale the Y-axis
+  const maxYValue = useMemo(() => {
+    let max = 0;
+    chartData.forEach((d) => {
+      if (showMasuk && d.masuk > max) max = d.masuk;
+      if (showKeluar && d.keluar > max) max = d.keluar;
+      if (showLaci && Math.abs(d.laci) > max) max = Math.abs(d.laci);
+      if (showBon && d.bon > max) max = d.bon;
+    });
+    if (max === 0) return 100000;
+    // Round up to nice number
+    const magnitude = Math.pow(10, Math.floor(Math.log10(max)));
+    return Math.ceil(max / magnitude) * magnitude;
+  }, [chartData, showMasuk, showKeluar, showLaci, showBon]);
+
   // Quick navigation handlers
   const handlePrevPeriod = () => {
     if (granularity === 'jam') {
@@ -375,6 +378,7 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
     } else {
       setSelectedYear((y) => y - 1);
     }
+    setHoveredIndex(null);
   };
 
   const handleNextPeriod = () => {
@@ -392,6 +396,7 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
     } else {
       setSelectedYear((y) => y + 1);
     }
+    setHoveredIndex(null);
   };
 
   const handleResetToCurrent = () => {
@@ -399,6 +404,7 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
     setSelectedDate(now.toISOString().slice(0, 10));
     setSelectedMonth(now.getMonth());
     setSelectedYear(now.getFullYear());
+    setHoveredIndex(null);
   };
 
   // Human readable title of active period
@@ -419,35 +425,27 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
     return `Tahun ${selectedYear}`;
   }, [granularity, selectedDate, selectedMonth, selectedYear, currentDate]);
 
-  // Custom Recharts Tooltip
-  const CustomChartTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-stone-900/95 text-white p-3 rounded-xl shadow-xl border border-stone-700 text-xs space-y-1.5 min-w-[170px] backdrop-blur-xs">
-          <div className="font-bold border-b border-stone-800 pb-1 text-stone-300">
-            {label} ({periodTitle})
-          </div>
-          {payload.map((entry: any, index: number) => {
-            const name = entry.name;
-            const value = entry.value;
-            const color = entry.color;
-            return (
-              <div key={`item-${index}`} className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
-                  <span className="text-stone-300 text-[11px]">{name}:</span>
-                </div>
-                <span className="font-bold text-white tracking-tight">
-                  {formatRupiah(value)}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      );
-    }
-    return null;
-  };
+  // Dimensions for custom SVG chart
+  const svgWidth = 800;
+  const svgHeight = 240;
+  const paddingLeft = 55;
+  const paddingRight = 20;
+  const paddingTop = 20;
+  const paddingBottom = 35;
+  const chartInnerWidth = svgWidth - paddingLeft - paddingRight;
+  const chartInnerHeight = svgHeight - paddingTop - paddingBottom;
+
+  // Active series count for bar positioning
+  const activeSeries = useMemo(() => {
+    const list: Array<{ key: 'masuk' | 'keluar' | 'laci' | 'bon'; color: string; label: string }> = [];
+    if (showMasuk) list.push({ key: 'masuk', color: '#10b981', label: 'Uang Masuk' });
+    if (showKeluar) list.push({ key: 'keluar', color: '#f43f5e', label: 'Uang Keluar' });
+    if (showLaci) list.push({ key: 'laci', color: '#f59e0b', label: 'Sisa Laci' });
+    if (showBon) list.push({ key: 'bon', color: '#3b82f6', label: 'Bon / Hutang' });
+    return list;
+  }, [showMasuk, showKeluar, showLaci, showBon]);
+
+  const activeItem = hoveredIndex !== null && chartData[hoveredIndex] ? chartData[hoveredIndex] : null;
 
   return (
     <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden space-y-3 p-3.5">
@@ -470,8 +468,11 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
           <button
             id="btn-granularity-jam"
             type="button"
-            onClick={() => setGranularity('jam')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+            onClick={() => {
+              setGranularity('jam');
+              setHoveredIndex(null);
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
               granularity === 'jam'
                 ? 'bg-white text-emerald-700 shadow-xs'
                 : 'text-stone-600 hover:text-stone-900'
@@ -484,8 +485,11 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
           <button
             id="btn-granularity-bulan"
             type="button"
-            onClick={() => setGranularity('bulan')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+            onClick={() => {
+              setGranularity('bulan');
+              setHoveredIndex(null);
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
               granularity === 'bulan'
                 ? 'bg-white text-emerald-700 shadow-xs'
                 : 'text-stone-600 hover:text-stone-900'
@@ -498,8 +502,11 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
           <button
             id="btn-granularity-tahun"
             type="button"
-            onClick={() => setGranularity('tahun')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+            onClick={() => {
+              setGranularity('tahun');
+              setHoveredIndex(null);
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
               granularity === 'tahun'
                 ? 'bg-white text-emerald-700 shadow-xs'
                 : 'text-stone-600 hover:text-stone-900'
@@ -518,7 +525,7 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
             type="button"
             onClick={handlePrevPeriod}
             title="Periode Sebelumnya"
-            className="p-1.5 rounded-lg bg-white hover:bg-stone-200 border border-stone-200 text-stone-600 transition-all"
+            className="p-1.5 rounded-lg bg-white hover:bg-stone-200 border border-stone-200 text-stone-600 transition-all cursor-pointer"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -531,7 +538,7 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
             type="button"
             onClick={handleNextPeriod}
             title="Periode Berikutnya"
-            className="p-1.5 rounded-lg bg-white hover:bg-stone-200 border border-stone-200 text-stone-600 transition-all"
+            className="p-1.5 rounded-lg bg-white hover:bg-stone-200 border border-stone-200 text-stone-600 transition-all cursor-pointer"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -539,7 +546,7 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
           <button
             type="button"
             onClick={handleResetToCurrent}
-            className="text-[10px] px-2 py-1 rounded-md bg-white border border-stone-200 text-emerald-700 hover:bg-emerald-50 font-semibold transition-all ml-1"
+            className="text-[10px] px-2 py-1 rounded-md bg-white border border-stone-200 text-emerald-700 hover:bg-emerald-50 font-semibold transition-all ml-1 cursor-pointer"
           >
             Sekarang
           </button>
@@ -551,7 +558,12 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
             <input
               type="date"
               value={selectedDate}
-              onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+              onChange={(e) => {
+                if (e.target.value) {
+                  setSelectedDate(e.target.value);
+                  setHoveredIndex(null);
+                }
+              }}
               className="bg-white border border-stone-300 rounded-lg px-2 py-1 text-xs text-stone-700 font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500"
             />
           )}
@@ -560,7 +572,10 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
             <div className="flex items-center gap-1">
               <select
                 value={selectedMonth}
-                onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
+                onChange={(e) => {
+                  setSelectedMonth(parseInt(e.target.value, 10));
+                  setHoveredIndex(null);
+                }}
                 className="bg-white border border-stone-300 rounded-lg px-2 py-1 text-xs text-stone-700 font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500"
               >
                 {MONTH_NAMES.map((name, idx) => (
@@ -571,7 +586,10 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
               </select>
               <select
                 value={selectedYear}
-                onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+                onChange={(e) => {
+                  setSelectedYear(parseInt(e.target.value, 10));
+                  setHoveredIndex(null);
+                }}
                 className="bg-white border border-stone-300 rounded-lg px-2 py-1 text-xs text-stone-700 font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500"
               >
                 {availableYears.map((y) => (
@@ -586,7 +604,10 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
           {granularity === 'tahun' && (
             <select
               value={selectedYear}
-              onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+              onChange={(e) => {
+                setSelectedYear(parseInt(e.target.value, 10));
+                setHoveredIndex(null);
+              }}
               className="bg-white border border-stone-300 rounded-lg px-2 py-1 text-xs text-stone-700 font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500"
             >
               {availableYears.map((y) => (
@@ -603,7 +624,7 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
               type="button"
               onClick={() => setChartType('bar')}
               title="Grafik Batang"
-              className={`p-1 rounded-md transition-all ${
+              className={`p-1 rounded-md transition-all cursor-pointer ${
                 chartType === 'bar' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-400 hover:text-stone-700'
               }`}
             >
@@ -613,7 +634,7 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
               type="button"
               onClick={() => setChartType('line')}
               title="Grafik Garis"
-              className={`p-1 rounded-md transition-all ${
+              className={`p-1 rounded-md transition-all cursor-pointer ${
                 chartType === 'line' ? 'bg-emerald-600 text-white shadow-xs' : 'text-stone-400 hover:text-stone-700'
               }`}
             >
@@ -726,152 +747,258 @@ export function CashFlowChart({ db }: CashFlowChartProps) {
         </div>
       </div>
 
-      {/* Chart Canvas */}
-      <div className="w-full h-64 sm:h-72 pt-2">
-        <ResponsiveContainer width="100%" height="100%">
-          {chartType === 'bar' ? (
-            <BarChart
-              data={chartData}
-              margin={{ top: 10, right: 10, left: -10, bottom: 20 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e7e5e4" />
-              <XAxis
-                dataKey="label"
-                tick={{ fontSize: 11, fill: '#78716c' }}
-                axisLine={{ stroke: '#d6d3d1' }}
-                tickLine={false}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: '#78716c' }}
-                axisLine={false}
-                tickLine={false}
-                tickFormatter={(val) => {
-                  if (val >= 1000000) return `${(val / 1000000).toFixed(1)}jt`;
-                  if (val >= 1000) return `${(val / 1000).toFixed(0)}rb`;
-                  return val.toString();
-                }}
-              />
-              <Tooltip content={<CustomChartTooltip />} />
-              <Legend
-                wrapperStyle={{ fontSize: 11, paddingTop: 6 }}
-                iconType="circle"
-              />
-              {showMasuk && (
-                <Bar
-                  dataKey="masuk"
-                  name="Uang Masuk"
-                  fill="#10b981"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={28}
-                />
-              )}
-              {showKeluar && (
-                <Bar
-                  dataKey="keluar"
-                  name="Uang Keluar"
-                  fill="#f43f5e"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={28}
-                />
-              )}
-              {showLaci && (
-                <Bar
-                  dataKey="laci"
-                  name="Sisa Laci"
-                  fill="#f59e0b"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={28}
-                />
-              )}
-              {showBon && (
-                <Bar
-                  dataKey="bon"
-                  name="Bon / Hutang"
-                  fill="#3b82f6"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={28}
-                />
-              )}
-            </BarChart>
-          ) : (
-            <LineChart
-              data={chartData}
-              margin={{ top: 10, right: 10, left: -10, bottom: 20 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e7e5e4" />
-              <XAxis
-                dataKey="label"
-                tick={{ fontSize: 11, fill: '#78716c' }}
-                axisLine={{ stroke: '#d6d3d1' }}
-                tickLine={false}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: '#78716c' }}
-                axisLine={false}
-                tickLine={false}
-                tickFormatter={(val) => {
-                  if (val >= 1000000) return `${(val / 1000000).toFixed(1)}jt`;
-                  if (val >= 1000) return `${(val / 1000).toFixed(0)}rb`;
-                  return val.toString();
-                }}
-              />
-              <Tooltip content={<CustomChartTooltip />} />
-              <Legend
-                wrapperStyle={{ fontSize: 11, paddingTop: 6 }}
-                iconType="circle"
-              />
-              {showMasuk && (
-                <Line
-                  type="monotone"
-                  dataKey="masuk"
-                  name="Uang Masuk"
-                  stroke="#10b981"
-                  strokeWidth={2.5}
-                  dot={{ r: 3 }}
-                  activeDot={{ r: 5 }}
-                />
-              )}
-              {showKeluar && (
-                <Line
-                  type="monotone"
-                  dataKey="keluar"
-                  name="Uang Keluar"
-                  stroke="#f43f5e"
-                  strokeWidth={2.5}
-                  dot={{ r: 3 }}
-                  activeDot={{ r: 5 }}
-                />
-              )}
-              {showLaci && (
-                <Line
-                  type="monotone"
-                  dataKey="laci"
-                  name="Sisa Laci"
-                  stroke="#f59e0b"
-                  strokeWidth={2.5}
-                  dot={{ r: 3 }}
-                  activeDot={{ r: 5 }}
-                />
-              )}
-              {showBon && (
-                <Line
-                  type="monotone"
-                  dataKey="bon"
-                  name="Bon / Hutang"
-                  stroke="#3b82f6"
-                  strokeWidth={2.5}
-                  dot={{ r: 3 }}
-                  activeDot={{ r: 5 }}
-                />
-              )}
-            </LineChart>
-          )}
-        </ResponsiveContainer>
+      {/* Detail Hover / Active Card */}
+      {activeItem && (
+        <div className="bg-stone-900 text-white px-3.5 py-2 rounded-xl text-xs flex flex-wrap items-center justify-between gap-2 transition-all">
+          <div className="font-bold text-stone-200">
+            {granularity === 'jam' ? `Jam ${activeItem.label}` : granularity === 'bulan' ? `Tanggal ${activeItem.label}` : `Bulan ${activeItem.label}`}:
+          </div>
+          <div className="flex items-center gap-3">
+            {showMasuk && (
+              <div className="flex items-center gap-1 text-emerald-300">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span>Masuk: {formatRupiah(activeItem.masuk)}</span>
+              </div>
+            )}
+            {showKeluar && (
+              <div className="flex items-center gap-1 text-rose-300">
+                <span className="w-2 h-2 rounded-full bg-rose-400" />
+                <span>Keluar: {formatRupiah(activeItem.keluar)}</span>
+              </div>
+            )}
+            {showLaci && (
+              <div className="flex items-center gap-1 text-amber-300">
+                <span className="w-2 h-2 rounded-full bg-amber-400" />
+                <span>Laci: {formatRupiah(activeItem.laci)}</span>
+              </div>
+            )}
+            {showBon && (
+              <div className="flex items-center gap-1 text-blue-300">
+                <span className="w-2 h-2 rounded-full bg-blue-400" />
+                <span>Bon: {formatRupiah(activeItem.bon)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* SVG Canvas Rendering - Zero Dependencies, 100% Reliable & Fast */}
+      <div className="w-full overflow-x-auto">
+        <div className="min-w-[500px]">
+          <svg
+            viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+            className="w-full h-auto select-none"
+            style={{ maxHeight: '250px' }}
+          >
+            {/* Grid horizontal lines */}
+            {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
+              const y = paddingTop + chartInnerHeight * (1 - ratio);
+              const val = maxYValue * ratio;
+              return (
+                <g key={idx}>
+                  <line
+                    x1={paddingLeft}
+                    y1={y}
+                    x2={svgWidth - paddingRight}
+                    y2={y}
+                    stroke="#e7e5e4"
+                    strokeDasharray={ratio === 0 ? undefined : '3 3'}
+                    strokeWidth={1}
+                  />
+                  <text
+                    x={paddingLeft - 8}
+                    y={y + 3}
+                    textAnchor="end"
+                    fontSize="10"
+                    fill="#78716c"
+                    fontWeight="500"
+                  >
+                    {formatShortRupiah(val)}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Bars Rendering */}
+            {chartType === 'bar' && (
+              <>
+                {chartData.map((item, i) => {
+                  const colWidth = chartInnerWidth / chartData.length;
+                  const colX = paddingLeft + i * colWidth;
+                  const barCount = activeSeries.length;
+                  const barWidth = Math.max(2, Math.min(18, (colWidth * 0.75) / (barCount || 1)));
+                  const groupWidth = barCount * barWidth;
+                  const groupStartX = colX + (colWidth - groupWidth) / 2;
+
+                  return (
+                    <g
+                      key={item.key}
+                      onMouseEnter={() => setHoveredIndex(i)}
+                      onClick={() => setHoveredIndex(i)}
+                      className="cursor-pointer"
+                    >
+                      {/* Transparent hit area for easy tapping */}
+                      <rect
+                        x={colX}
+                        y={paddingTop}
+                        width={colWidth}
+                        height={chartInnerHeight}
+                        fill={hoveredIndex === i ? 'rgba(0,0,0,0.03)' : 'transparent'}
+                      />
+
+                      {activeSeries.map((series, sIdx) => {
+                        const val = item[series.key];
+                        const barHeight = maxYValue > 0 ? (Math.max(0, val) / maxYValue) * chartInnerHeight : 0;
+                        const bx = groupStartX + sIdx * barWidth;
+                        const by = paddingTop + chartInnerHeight - barHeight;
+
+                        return (
+                          <rect
+                            key={series.key}
+                            x={bx}
+                            y={by}
+                            width={Math.max(1, barWidth - 1)}
+                            height={barHeight}
+                            rx={3}
+                            fill={series.color}
+                            opacity={hoveredIndex === null || hoveredIndex === i ? 1 : 0.4}
+                            className="transition-all duration-150"
+                          />
+                        );
+                      })}
+                    </g>
+                  );
+                })}
+              </>
+            )}
+
+            {/* Line Rendering */}
+            {chartType === 'line' && (
+              <>
+                {activeSeries.map((series) => {
+                  const colWidth = chartInnerWidth / chartData.length;
+                  const points = chartData.map((item, i) => {
+                    const x = paddingLeft + i * colWidth + colWidth / 2;
+                    const val = item[series.key];
+                    const y = paddingTop + chartInnerHeight - (maxYValue > 0 ? (Math.max(0, val) / maxYValue) * chartInnerHeight : 0);
+                    return { x, y, val };
+                  });
+
+                  const pathD = points.reduce((acc, p, idx) => {
+                    return idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
+                  }, '');
+
+                  return (
+                    <g key={series.key}>
+                      <path
+                        d={pathD}
+                        fill="none"
+                        stroke={series.color}
+                        strokeWidth={2.5}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      {points.map((p, idx) => (
+                        <circle
+                          key={idx}
+                          cx={p.x}
+                          cy={p.y}
+                          r={hoveredIndex === idx ? 5 : 3}
+                          fill={series.color}
+                          stroke="#ffffff"
+                          strokeWidth={1.5}
+                          className="transition-all"
+                        />
+                      ))}
+                    </g>
+                  );
+                })}
+
+                {/* Transparent column hit zones for line chart */}
+                {chartData.map((item, i) => {
+                  const colWidth = chartInnerWidth / chartData.length;
+                  const colX = paddingLeft + i * colWidth;
+                  return (
+                    <rect
+                      key={item.key}
+                      x={colX}
+                      y={paddingTop}
+                      width={colWidth}
+                      height={chartInnerHeight}
+                      fill={hoveredIndex === i ? 'rgba(0,0,0,0.04)' : 'transparent'}
+                      onMouseEnter={() => setHoveredIndex(i)}
+                      onClick={() => setHoveredIndex(i)}
+                      className="cursor-pointer"
+                    />
+                  );
+                })}
+              </>
+            )}
+
+            {/* X-Axis bottom line */}
+            <line
+              x1={paddingLeft}
+              y1={paddingTop + chartInnerHeight}
+              x2={svgWidth - paddingRight}
+              y2={paddingTop + chartInnerHeight}
+              stroke="#d6d3d1"
+              strokeWidth={1}
+            />
+
+            {/* X-Axis labels */}
+            {chartData.map((item, i) => {
+              const colWidth = chartInnerWidth / chartData.length;
+              const x = paddingLeft + i * colWidth + colWidth / 2;
+              const y = paddingTop + chartInnerHeight + 15;
+
+              // If month has 31 items, show every 2nd or 3rd label on small screens
+              const totalItems = chartData.length;
+              const skip = totalItems > 20 ? (i % 2 !== 0 && i !== totalItems - 1) : false;
+
+              if (skip) return null;
+
+              return (
+                <text
+                  key={item.key}
+                  x={x}
+                  y={y}
+                  textAnchor="middle"
+                  fontSize="10"
+                  fill={hoveredIndex === i ? '#047857' : '#78716c'}
+                  fontWeight={hoveredIndex === i ? '700' : '400'}
+                >
+                  {item.label}
+                </text>
+              );
+            })}
+          </svg>
+        </div>
       </div>
 
-      <div className="flex items-center justify-between text-[11px] text-stone-400 pt-1 border-t border-stone-100">
-        <span>*Klik kartu warna di atas untuk sembunyikan/tampilkan garis grafik</span>
-        <span>Skala: {granularity.toUpperCase()}</span>
+      {/* Legend & Instructions */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-stone-100 text-[11px] text-stone-500">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+            <span>Uang Masuk</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+            <span>Uang Keluar</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+            <span>Sisa Laci</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+            <span>Bon/Hutang</span>
+          </div>
+        </div>
+
+        <span className="text-stone-400">
+          *Sentuh batang/titik grafik untuk lihat angka rincian
+        </span>
       </div>
     </div>
   );
